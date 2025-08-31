@@ -32,6 +32,9 @@ router.get('/', async (req, res) => {
 
     const [reviews, total] = await Promise.all([
       prisma.review.findMany({
+        where: {
+          status: 'APPROVED' // Only show approved reviews publicly
+        },
         skip,
         take,
         orderBy,
@@ -53,7 +56,11 @@ router.get('/', async (req, res) => {
           }
         }
       }),
-      prisma.review.count()
+      prisma.review.count({
+        where: {
+          status: 'APPROVED' // Only count approved reviews
+        }
+      })
     ]);
 
     res.json({
@@ -81,6 +88,9 @@ router.get('/property/:propertyId', async (req, res) => {
 
     const [reviews, total] = await Promise.all([
       prisma.review.findMany({
+        where: {
+          status: 'APPROVED' // Only show approved reviews publicly
+        },
         where: { propertyId },
         skip,
         take,
@@ -124,6 +134,9 @@ router.get('/agent/:agentId', async (req, res) => {
 
     const [reviews, total] = await Promise.all([
       prisma.review.findMany({
+        where: {
+          status: 'APPROVED' // Only show approved reviews publicly
+        },
         where: {
           property: {
             agentId: agentId
@@ -184,6 +197,9 @@ router.get('/user/:userId', async (req, res) => {
 
     const [reviews, total] = await Promise.all([
       prisma.review.findMany({
+        where: {
+          status: 'APPROVED' // Only show approved reviews publicly
+        },
         where: { userId },
         skip,
         take,
@@ -265,7 +281,8 @@ router.post('/', [
         rating: parseInt(rating),
         comment: comment.trim(),
         propertyId,
-        userId: decoded.userId
+        userId: decoded.userId,
+        status: 'PENDING'
       },
       include: {
         user: {

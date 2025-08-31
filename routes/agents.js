@@ -12,7 +12,7 @@ router.get('/', async (req, res) => {
 
     // Build where clause based on filters
     const whereClause = {
-      isVerified: true,
+      verificationStatus: 'APPROVED', // Only show approved agents
       ...(search && {
         OR: [
           { user: { firstName: { contains: search, mode: 'insensitive' } } },
@@ -20,16 +20,16 @@ router.get('/', async (req, res) => {
           { specialties: { hasSome: [search] } }
         ]
       }),
-      ...(location && location !== 'all' && { 
-        user: { 
+      ...(location && location !== 'all' && {
+        user: {
           OR: [
             { firstName: { contains: location, mode: 'insensitive' } },
             { lastName: { contains: location, mode: 'insensitive' } }
           ]
         }
       }),
-      ...(specialty && specialty !== 'all' && { 
-        specialties: { has: specialty } 
+      ...(specialty && specialty !== 'all' && {
+        specialties: { has: specialty }
       })
     };
 
@@ -75,6 +75,7 @@ router.get('/', async (req, res) => {
         yearsExperience: 5, // Default for now
         licenseNumber: agent.licenseNumber,
         isVerified: agent.isVerified,
+        verificationStatus: agent.verificationStatus,
         phone: agent.phone,
         profileImage: agent.profileImage
       };

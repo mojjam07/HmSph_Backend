@@ -58,6 +58,17 @@ router.post('/register', [
       }
     });
 
+    // If role is AGENT, create an Agent record with verificationStatus PENDING
+    if (role === 'AGENT') {
+      await prisma.agent.create({
+        data: {
+          userId: user.id,
+          licenseNumber: '', // Placeholder, should be updated later
+          verificationStatus: 'PENDING'
+        }
+      });
+    }
+
     const token = jwt.sign(
       { userId: user.id, email: user.email, role: user.role },
       process.env.JWT_SECRET,

@@ -76,6 +76,7 @@ model Review {
   comment    String
   propertyId String
   userId     String
+  status     ReviewStatus   @default(PENDING)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
   dislikes   Int?     @default(0)
@@ -87,6 +88,7 @@ model Review {
 model Favorite {
   id         String   @id @default(cuid())
   userId     String
+  status     ReviewStatus   @default(PENDING)
   propertyId String
   createdAt  DateTime @default(now())
   property   Property @relation(fields: [propertyId], references: [id])
@@ -218,4 +220,10 @@ enum PaymentMethod {
   PAYPAL
   FLUTTERWAVE
   PAYSTACK
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }

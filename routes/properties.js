@@ -232,6 +232,7 @@ router.post('/', [
     const property = await prisma.property.create({
       data: {
         ...req.body,
+        status: 'PENDING', // Properties created by agents start as pending
         agentId: agent.id
       },
       include: {

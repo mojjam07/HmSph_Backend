@@ -5,77 +5,91 @@ const { authenticate, requireAdmin } = require('../middleware/auth');
 const router = express.Router();
 const prisma = new PrismaClient();
 
-// Apply admin middleware to all routes
+// Apply authentication and admin middleware to all routes
+router.use(authenticate);
 router.use(requireAdmin);
 
-// Get admin dashboard statistics
-router.get('/dashboard/stats', async (req, res) => {
+
+// Get pending reviews for admin approval
+router.get('/reviews/pending', async (req, res) => {
   try {
-    const [
-      totalAgents,
-      totalProperties,
-      totalUsers,
-      activeListings,
-      pendingListings,
-      totalRevenue
-    ] = await Promise.all([
-      prisma.agent.count({ where: { isVerified: true } }),
-      prisma.property.count(),
-      prisma.user.count(),
-      prisma.property.count({ where: { status: 'ACTIVE' } }),
-      prisma.property.count({ where: { status: 'PENDING' } }),
-      prisma.property.aggregate({
-        _sum: { price: true },
-        where: { status: 'SOLD' }
-      })
-    ]);
+    const { page = 1, limit = 20 } = req.query;
+    const skip = (page - 1) * limit;
+    const take = parseInt(limit);
 
-    // Get recent activity (last 7 days)
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-    const recentActivity = await prisma.property.findMany({
-      where: {
-        createdAt: { gte: sevenDaysAgo }
-      },
-      include: {
-        agent: {
-          include: {
-            user: {
-              select: {
-                firstName: true,
-                lastName: true
-              }
+    const [reviews, total] = await Promise.all([
+      prisma.review.findMany({
+        where: { status: 'PENDING' },
+        skip,
+        take,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          property: {
+            select: {
+              id: true,
+              title: true,
+              address: true
             }
           }
         }
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 10
-    });
+      }),
+      prisma.review.count({ where: { status: 'PENDING' } })
+    ]);
 
     res.json({
-      stats: {
-        totalAgents,
-        totalProperties,
-        totalUsers,
-        activeListings,
-        pendingListings,
-        totalRevenue: totalRevenue._sum.price || 0
-      },
-      recentActivity: recentActivity.map(activity => ({
-        id: activity.id,
-        title: activity.title,
-        type: 'property',
-        action: 'created',
-        agentName: activity.agent ? `${activity.agent.user.firstName} ${activity.agent.user.lastName}` : 'Unknown',
-        timestamp: activity.createdAt
-      }))
+      reviews,
+      total,
+      page: parseInt(page),
+      pages: Math.ceil(total / limit)
     });
   } catch (error) {
-    console.error('Error fetching admin stats:', error.message, error.stack);
+    console.error('Error fetching pending reviews:', error.message, error.stack);
     res.status(500).json({
-      message: 'Server error occurred while fetching admin stats.',
+      message: 'Server error occurred while fetching pending reviews.',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Approve a review
+router.post('/reviews/:id/approve', async (req, res) => {
+  try {
+    const reviewId = req.params.id;
+    const updatedReview = await prisma.review.update({
+      where: { id: reviewId },
+      data: { status: 'APPROVED' }
+    });
+    res.json({ review: updatedReview });
+  } catch (error) {
+    console.error('Error approving review:', error.message, error.stack);
+    res.status(500).json({
+      message: 'Server error occurred while approving review.',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Reject a review
+router.post('/reviews/:id/reject', async (req, res) => {
+  try {
+    const reviewId = req.params.id;
+    const updatedReview = await prisma.review.update({
+      where: { id: reviewId },
+      data: { status: 'REJECTED' }
+    });
+    res.json({ review: updatedReview });
+  } catch (error) {
+    console.error('Error rejecting review:', error.message, error.stack);
+    res.status(500).json({
+      message: 'Server error occurred while rejecting review.',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -166,6 +180,234 @@ router.get('/agents', async (req, res) => {
   }
 });
 
+// Approve an agent
+router.post('/agents/:id/approve', async (req, res) => {
+  try {
+    const agentId = req.params.id;
+    const updatedAgent = await prisma.agent.update({
+      where: { id: agentId },
+      data: { verificationStatus: 'APPROVED' },
+      include: {
+        user: {
+          select: {
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        }
+      }
+    });
+    res.json({ agent: updatedAgent });
+  } catch (error) {
+    console.error('Error approving agent:', error.message, error.stack);
+    res.status(500).json({
+      message: 'Server error occurred while approving agent.',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Reject an agent
+router.post('/agents/:id/reject', async (req, res) => {
+  try {
+    const agentId = req.params.id;
+    const updatedAgent = await prisma.agent.update({
+      where: { id: agentId },
+      data: { verificationStatus: 'REJECTED' },
+      include: {
+        user: {
+          select: {
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        }
+      }
+    });
+    res.json({ agent: updatedAgent });
+  } catch (error) {
+    console.error('Error rejecting agent:', error.message, error.stack);
+    res.status(500).json({
+      message: 'Server error occurred while rejecting agent.',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Get dashboard stats for admin
+router.get('/dashboard/stats', async (req, res) => {
+  try {
+    const [
+      totalAgents,
+      totalProperties,
+      activeListings,
+      pendingReviews,
+      totalRevenue
+    ] = await Promise.all([
+      // Total agents count
+      prisma.agent.count(),
+
+      // Total properties count
+      prisma.property.count(),
+
+      // Active listings count
+      prisma.property.count({ where: { status: 'ACTIVE' } }),
+
+      // Pending reviews count
+      prisma.review.count({ where: { status: 'PENDING' } }),
+
+      // Total revenue from sold properties
+      prisma.property.aggregate({
+        _sum: { price: true },
+        where: { status: 'SOLD' }
+      })
+    ]);
+
+    const stats = {
+      totalAgents,
+      totalProperties,
+      activeListings,
+      pendingReviews,
+      totalRevenue: totalRevenue._sum.price || 0
+    };
+
+    res.json({ stats });
+  } catch (error) {
+    console.error('Error fetching dashboard stats:', error.message, error.stack);
+    res.status(500).json({
+      message: 'Server error occurred while fetching dashboard stats.',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Get all properties for admin management (including pending)
+router.get('/properties', async (req, res) => {
+  try {
+    const { page = 1, limit = 50, status = 'all', search } = req.query;
+    const skip = (page - 1) * limit;
+    const take = parseInt(limit);
+
+    const where = {
+      ...(status && status !== 'all' && { status }),
+      ...(search && {
+        OR: [
+          { title: { contains: search, mode: 'insensitive' } },
+          { description: { contains: search, mode: 'insensitive' } },
+          { address: { contains: search, mode: 'insensitive' } },
+          { agent: {
+            user: {
+              OR: [
+                { firstName: { contains: search, mode: 'insensitive' } },
+                { lastName: { contains: search, mode: 'insensitive' } },
+                { email: { contains: search, mode: 'insensitive' } }
+              ]
+            }
+          }}
+        ]
+      })
+    };
+
+    const [properties, total] = await Promise.all([
+      prisma.property.findMany({
+        where,
+        skip,
+        take,
+        include: {
+          agent: {
+            include: {
+              user: {
+                select: {
+                  firstName: true,
+                  lastName: true,
+                  email: true
+                }
+              }
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' }
+      }),
+      prisma.property.count({ where })
+    ]);
+
+    res.json({
+      properties,
+      total,
+      page: parseInt(page),
+      pages: Math.ceil(total / limit)
+    });
+  } catch (error) {
+    console.error('Error fetching properties for admin:', error.message, error.stack);
+    res.status(500).json({
+      message: 'Server error occurred while fetching properties for admin.',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Approve a property
+router.post('/properties/:id/approve', async (req, res) => {
+  try {
+    const propertyId = req.params.id;
+    const updatedProperty = await prisma.property.update({
+      where: { id: propertyId },
+      data: { status: 'ACTIVE' },
+      include: {
+        agent: {
+          include: {
+            user: {
+              select: {
+                firstName: true,
+                lastName: true,
+                email: true
+              }
+            }
+          }
+        }
+      }
+    });
+    res.json({ property: updatedProperty });
+  } catch (error) {
+    console.error('Error approving property:', error.message, error.stack);
+    res.status(500).json({
+      message: 'Server error occurred while approving property.',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Reject a property
+router.post('/properties/:id/reject', async (req, res) => {
+  try {
+    const propertyId = req.params.id;
+    const updatedProperty = await prisma.property.update({
+      where: { id: propertyId },
+      data: { status: 'REJECTED' },
+      include: {
+        agent: {
+          include: {
+            user: {
+              select: {
+                firstName: true,
+                lastName: true,
+                email: true
+              }
+            }
+          }
+        }
+      }
+    });
+    res.json({ property: updatedProperty });
+  } catch (error) {
+    console.error('Error rejecting property:', error.message, error.stack);
+    res.status(500).json({
+      message: 'Server error occurred while rejecting property.',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
 // Get admin analytics data
 router.get('/analytics', async (req, res) => {
   try {
@@ -198,23 +440,23 @@ router.get('/analytics', async (req, res) => {
         _count: { id: true },
         where: { createdAt: { gte: startDate } }
       }),
-      
+
       // User registration statistics
       prisma.user.groupBy({
         by: ['role'],
         _count: { id: true },
         where: { createdAt: { gte: startDate } }
       }),
-      
+
       // Revenue statistics
       prisma.property.aggregate({
         _sum: { price: true },
-        where: { 
+        where: {
           status: 'SOLD',
           createdAt: { gte: startDate }
         }
       }),
-      
+
       // Top performing agents
       prisma.agent.findMany({
         include: {
@@ -225,7 +467,7 @@ router.get('/analytics', async (req, res) => {
             }
           },
           properties: {
-            where: { 
+            where: {
               status: 'SOLD',
               createdAt: { gte: startDate }
             },
