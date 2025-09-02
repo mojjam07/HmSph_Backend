@@ -102,16 +102,26 @@ router.get('/agents', async (req, res) => {
     const skip = (page - 1) * limit;
     const take = parseInt(limit);
 
-    const where = {
-      ...(search && {
-        OR: [
-          { user: { firstName: { contains: search, mode: 'insensitive' } } },
-          { user: { lastName: { contains: search, mode: 'insensitive' } } },
-          { licenseNumber: { contains: search, mode: 'insensitive' } }
-        ]
-      }),
-      ...(status && status !== 'all' && { verificationStatus: status })
-    };
+    // Build where clause properly handling undefined values
+    const where = {};
+
+    // Only add search conditions if search is provided and not empty
+    if (search && search.trim() !== '' && search !== 'undefined') {
+      where.OR = [
+        { user: { firstName: { contains: search.trim(), mode: 'insensitive' } } },
+        { user: { lastName: { contains: search.trim(), mode: 'insensitive' } } },
+        { licenseNumber: { contains: search.trim(), mode: 'insensitive' } }
+      ];
+    }
+
+    // Only add status filter if status is provided and valid
+    if (status && status !== 'all' && status !== 'undefined' && status.trim() !== '') {
+      // Ensure status is a valid enum value
+      const validStatuses = ['PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED'];
+      if (validStatuses.includes(status.toUpperCase())) {
+        where.verificationStatus = status.toUpperCase();
+      }
+    }
 
     const [agents, total] = await Promise.all([
       prisma.agent.findMany({
@@ -144,33 +154,39 @@ router.get('/agents', async (req, res) => {
       const activeProperties = agent.properties.filter(p => p.status === 'ACTIVE').length;
       const soldProperties = agent.properties.filter(p => p.status === 'SOLD').length;
 
+      // Ensure all values are JSON-serializable
       return {
-        agentId: agent.id,
-        firstName: agent.user.firstName,
-        lastName: agent.user.lastName,
-        email: agent.user.email,
-        phone: agent.phone,
-        businessName: agent.businessName,
-        licenseNumber: agent.licenseNumber,
-        isVerified: agent.isVerified,
-        verificationStatus: agent.verificationStatus,
-        subscriptionPlan: agent.subscriptionPlan,
-        currentMonthListings: activeProperties,
-        listingLimits: agent.listingLimits || 25,
-        profilePicture: agent.user.avatar || '/api/placeholder/64/64',
-        totalSales: soldProperties,
-        rating: 4.8, // Default for now
-        joinedDate: agent.user.createdAt,
-        lastActive: agent.updatedAt
+        agentId: String(agent.id),
+        firstName: String(agent.user.firstName),
+        lastName: String(agent.user.lastName),
+        email: String(agent.user.email),
+        phone: String(agent.phone || ''),
+        businessName: String(agent.businessName || ''),
+        licenseNumber: String(agent.licenseNumber || ''),
+        isVerified: Boolean(agent.isVerified),
+        verificationStatus: String(agent.verificationStatus),
+        subscriptionPlan: String(agent.subscriptionPlan),
+        currentMonthListings: Number(activeProperties),
+        listingLimits: Number(agent.listingLimits || 25),
+        profilePicture: String(agent.user.avatar || '/api/placeholder/64/64'),
+        totalSales: Number(soldProperties),
+        rating: Number(4.8), // Default for now
+        joinedDate: agent.user.createdAt ? agent.user.createdAt.toISOString() : null,
+        lastActive: agent.updatedAt ? agent.updatedAt.toISOString() : null
       };
     });
 
-    res.json({
+    // Return the actual agents data
+    const responseData = {
       agents: transformedAgents,
       total,
       page: parseInt(page),
       pages: Math.ceil(total / limit)
-    });
+    };
+
+    // Use explicit JSON.stringify to avoid any Express JSON issues
+    res.setHeader('Content-Type', 'application/json');
+    res.send(JSON.stringify(responseData));
   } catch (error) {
     console.error('Error fetching agents for admin:', error.message, error.stack);
     res.status(500).json({
@@ -271,7 +287,10 @@ router.get('/dashboard/stats', async (req, res) => {
       totalRevenue: totalRevenue._sum.price || 0
     };
 
-    res.json({ stats });
+    // Ensure proper JSON serialization
+    const responseData = { stats };
+    res.setHeader('Content-Type', 'application/json');
+    res.send(JSON.stringify(responseData));
   } catch (error) {
     console.error('Error fetching dashboard stats:', error.message, error.stack);
     res.status(500).json({

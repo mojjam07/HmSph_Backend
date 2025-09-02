@@ -116,4 +116,66 @@ router.post('/submit', [
   }
 });
 
+// Get contact form submissions for admin
+router.get('/submissions', async (req, res) => {
+  try {
+    const { page = 1, limit = 20, status = 'all' } = req.query;
+    const skip = (page - 1) * limit;
+    const take = parseInt(limit);
+
+    const where = {
+      ...(status && status !== 'all' && { status })
+    };
+
+    const [submissions, total] = await Promise.all([
+      prisma.contact.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          user: {
+            select: {
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          agent: {
+            include: {
+              user: {
+                select: {
+                  firstName: true,
+                  lastName: true
+                }
+              }
+            }
+          },
+          property: {
+            select: {
+              id: true,
+              title: true,
+              address: true
+            }
+          }
+        }
+      }),
+      prisma.contact.count({ where })
+    ]);
+
+    res.json({
+      submissions,
+      total,
+      page: parseInt(page),
+      pages: Math.ceil(total / limit)
+    });
+  } catch (error) {
+    console.error('Error fetching contact submissions:', error.message, error.stack);
+    res.status(500).json({
+      message: 'Server error occurred while fetching contact submissions.',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
 module.exports = router;

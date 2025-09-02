@@ -7,7 +7,7 @@ require('dotenv').config();
 
 // Monkey-patch BigInt to allow JSON serialization globally.
 // This is the standard and most robust fix for Prisma's BigInt support.
-BigInt.prototype.toJSON = function() { return this.toString(); };
+// BigInt.prototype.toJSON = function() { return this.toString(); };
 
 const authRoutes = require('./routes/auth');
 const authDebugRoutes = require('./routes/auth-debug');
@@ -37,7 +37,7 @@ app.use(cors({
   origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
   credentials: true
 }));
-app.use(compression());
+// app.use(compression()); // Temporarily disabled to test JSON issues
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -70,20 +70,28 @@ app.get('/api/health', async (req, res) => {
   try {
     // Test database connection
     await prisma.$queryRaw`SELECT 1`;
-    
-    res.json({ 
-      status: 'OK', 
+
+    // Use explicit JSON.stringify
+    const response = {
+      status: 'OK',
       timestamp: new Date().toISOString(),
       database: 'connected',
       environment: process.env.NODE_ENV || 'development'
-    });
+    };
+
+    res.setHeader('Content-Type', 'application/json');
+    res.send(JSON.stringify(response));
   } catch (error) {
-    res.status(503).json({ 
-      status: 'ERROR', 
+    const errorResponse = {
+      status: 'ERROR',
       timestamp: new Date().toISOString(),
       database: 'disconnected',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Database connection failed'
-    });
+    };
+
+    res.status(503);
+    res.setHeader('Content-Type', 'application/json');
+    res.send(JSON.stringify(errorResponse));
   }
 });
 
