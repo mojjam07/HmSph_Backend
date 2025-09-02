@@ -1,4 +1,5 @@
 const express = require('express');
+const { body, validationResult } = require('express-validator');
 const { PrismaClient } = require('@prisma/client');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 
@@ -90,6 +91,124 @@ router.post('/reviews/:id/reject', async (req, res) => {
     console.error('Error rejecting review:', error.message, error.stack);
     res.status(500).json({
       message: 'Server error occurred while rejecting review.',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Create a new agent (admin only)
+router.post('/agents', [
+  body('firstName').trim().isLength({ min: 2 }),
+  body('lastName').trim().isLength({ min: 2 }),
+  body('email').isEmail().normalizeEmail(),
+  body('password').isLength({ min: 6 }),
+  body('phone').optional().isMobilePhone(),
+  body('businessName').optional().trim().isLength({ min: 2 }),
+  body('licenseNumber').trim().isLength({ min: 5 }),
+  body('verificationStatus').optional().isIn(['PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED']),
+  body('subscriptionPlan').optional().isIn(['BASIC', 'PRO', 'PREMIUM', 'ENTERPRISE']),
+  body('profileImage').optional().isURL(),
+  body('commissionRate').optional().isFloat({ min: 0, max: 1 }),
+  body('specialties').optional().isArray(),
+  body('bio').optional().trim().isLength({ min: 10 }),
+  body('listingLimits').optional().isInt({ min: 0 })
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const {
+      firstName,
+      lastName,
+      email,
+      password,
+      phone,
+      businessName,
+      licenseNumber,
+      verificationStatus = 'PENDING',
+      subscriptionPlan = 'BASIC',
+      profileImage,
+      commissionRate = 0.03,
+      specialties = [],
+      bio,
+      listingLimits = 25
+    } = req.body;
+
+    // Check if user with this email already exists
+    const existingUser = await prisma.user.findUnique({ where: { email } });
+    if (existingUser) {
+      return res.status(400).json({ message: 'User with this email already exists' });
+    }
+
+    // Check if license number is already taken
+    const existingAgent = await prisma.agent.findUnique({ where: { licenseNumber } });
+    if (existingAgent) {
+      return res.status(400).json({ message: 'License number already exists' });
+    }
+
+    // Hash the password
+    const bcrypt = require('bcryptjs');
+    const hashedPassword = await bcrypt.hash(password, 12);
+
+    // Create user first
+    const user = await prisma.user.create({
+      data: {
+        email,
+        password: hashedPassword,
+        firstName,
+        lastName,
+        role: 'AGENT'
+      }
+    });
+
+    // Create agent profile
+    const agent = await prisma.agent.create({
+      data: {
+        userId: user.id,
+        licenseNumber,
+        phone,
+        businessName,
+        verificationStatus,
+        subscriptionPlan,
+        profileImage,
+        commissionRate,
+        specialties,
+        bio,
+        listingLimits
+      },
+      include: {
+        user: {
+          select: {
+            firstName: true,
+            lastName: true,
+            email: true,
+            avatar: true
+          }
+        }
+      }
+    });
+
+    res.status(201).json({
+      message: 'Agent created successfully',
+      agent: {
+        agentId: agent.id,
+        firstName: agent.user.firstName,
+        lastName: agent.user.lastName,
+        email: agent.user.email,
+        phone: agent.phone,
+        businessName: agent.businessName,
+        licenseNumber: agent.licenseNumber,
+        verificationStatus: agent.verificationStatus,
+        subscriptionPlan: agent.subscriptionPlan,
+        profilePicture: agent.user.avatar || agent.profileImage
+      }
+    });
+  } catch (error) {
+    console.error('Error creating agent by admin:', error.message, error.stack);
+    res.status(500).json({
+      message: 'Server error occurred while creating the agent.',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -422,6 +541,81 @@ router.post('/properties/:id/reject', async (req, res) => {
     console.error('Error rejecting property:', error.message, error.stack);
     res.status(500).json({
       message: 'Server error occurred while rejecting property.',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Create property for admin
+router.post('/properties', [
+  body('title').trim().isLength({ min: 3 }),
+  body('description').trim().isLength({ min: 10 }),
+  body('price').isInt({ min: 0 }),
+  body('address').trim().isLength({ min: 5 }),
+  body('city').trim().isLength({ min: 2 }),
+  body('state').trim().isLength({ min: 2 }),
+  body('zipCode').trim().isLength({ min: 5 }),
+  body('bedrooms').isInt({ min: 0 }),
+  body('bathrooms').isFloat({ min: 0 }),
+  body('squareFootage').isInt({ min: 0 }),
+  body('propertyType').isIn(['HOUSE', 'APARTMENT', 'CONDO', 'TOWNHOUSE', 'LAND', 'COMMERCIAL'])
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    // For admin-created properties, we need an agent. Create a system agent if not exists.
+    let systemAgent = await prisma.agent.findFirst({
+      where: { user: { role: 'ADMIN' } }
+    });
+
+    if (!systemAgent) {
+      // Create system agent for admin
+      const adminUser = await prisma.user.findFirst({
+        where: { role: 'ADMIN' }
+      });
+      if (!adminUser) {
+        return res.status(400).json({ message: 'No admin user found' });
+      }
+      systemAgent = await prisma.agent.create({
+        data: {
+          userId: adminUser.id,
+          licenseNumber: 'SYSTEM-ADMIN',
+          businessName: 'System Admin',
+          isVerified: true,
+          verificationStatus: 'APPROVED'
+        }
+      });
+    }
+
+    const property = await prisma.property.create({
+      data: {
+        ...req.body,
+        status: 'ACTIVE', // Admin-created properties are active by default
+        agentId: systemAgent.id
+      },
+      include: {
+        agent: {
+          include: {
+            user: {
+              select: {
+                firstName: true,
+                lastName: true,
+                email: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    res.status(201).json({ property });
+  } catch (error) {
+    console.error('Error creating property by admin:', error.message, error.stack);
+    res.status(500).json({
+      message: 'Server error occurred while creating the property.',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
