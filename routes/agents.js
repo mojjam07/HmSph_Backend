@@ -1,6 +1,7 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { PrismaClient } = require('@prisma/client');
+const { authenticate, requireAgent } = require('../middleware/auth');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -97,18 +98,10 @@ router.get('/', async (req, res) => {
 });
 
 // Get agent profile
-router.get('/profile', async (req, res) => {
+router.get('/profile', authenticate, requireAgent, async (req, res) => {
   try {
-    const token = req.header('Authorization')?.replace('Bearer ', '');
-    if (!token) {
-      return res.status(401).json({ message: 'No token provided' });
-    }
-
-    const jwt = require('jsonwebtoken');
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
     const agent = await prisma.agent.findUnique({
-      where: { userId: decoded.userId },
+      where: { userId: req.user.id },
       include: {
         user: {
           select: {
@@ -154,23 +147,15 @@ router.put('/profile', [
   body('bio').optional().trim().isLength({ min: 10 }),
   body('phone').optional().isMobilePhone(),
   body('profileImage').optional().isURL()
-], async (req, res) => {
+], authenticate, requireAgent, async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const token = req.header('Authorization')?.replace('Bearer ', '');
-    if (!token) {
-      return res.status(401).json({ message: 'No token provided' });
-    }
-
-    const jwt = require('jsonwebtoken');
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
     const agent = await prisma.agent.update({
-      where: { userId: decoded.userId },
+      where: { userId: req.user.id },
       data: req.body,
       include: {
         user: {
@@ -194,18 +179,10 @@ router.put('/profile', [
 });
 
 // Get agent analytics
-router.get('/analytics', async (req, res) => {
+router.get('/analytics', authenticate, requireAgent, async (req, res) => {
   try {
-    const token = req.header('Authorization')?.replace('Bearer ', '');
-    if (!token) {
-      return res.status(401).json({ message: 'No token provided' });
-    }
-
-    const jwt = require('jsonwebtoken');
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
     const agent = await prisma.agent.findUnique({
-      where: { userId: decoded.userId }
+      where: { userId: req.user.id }
     });
 
     if (!agent) {
@@ -304,6 +281,78 @@ router.get('/:agentId/stats', async (req, res) => {
     console.error('Error fetching agent stats:', error.message, error.stack);
     res.status(500).json({
       message: 'Server error occurred while fetching agent stats.',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+router.post('/:agentId/contact', [
+  body('contactType').isIn(['email', 'phone', 'message']),
+  body('message').optional().trim().isLength({ min: 10, max: 1000 }),
+  body('userId').isString().notEmpty()
+], authenticate, async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { agentId } = req.params;
+    const { contactType, message, userId } = req.body;
+
+    // Verify agent exists
+    const agent = await prisma.agent.findUnique({
+      where: { id: agentId },
+      include: {
+        user: {
+          select: {
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        }
+      }
+    });
+
+    if (!agent) {
+      return res.status(404).json({ message: 'Agent not found' });
+    }
+
+    // Get user details
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        firstName: true,
+        lastName: true,
+        email: true
+      }
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Create contact record (you might want to create a Contact model for this)
+    // For now, we'll just return success
+    const contactData = {
+      agentId,
+      userId,
+      contactType,
+      message,
+      createdAt: new Date()
+    };
+
+    // TODO: Save contact data to database if needed
+    console.log('Contact request:', contactData);
+
+    res.status(201).json({
+      message: 'Contact request sent successfully',
+      contact: contactData
+    });
+  } catch (error) {
+    console.error('Error sending contact request:', error.message, error.stack);
+    res.status(500).json({
+      message: 'Server error occurred while sending contact request.',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }

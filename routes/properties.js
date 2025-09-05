@@ -216,6 +216,12 @@ router.post('/', [
   body('propertyType').isIn(['HOUSE', 'APARTMENT', 'CONDO', 'TOWNHOUSE', 'LAND', 'COMMERCIAL'])
 ], authenticate, requireAgent, async (req, res) => {
   try {
+    console.log('Property creation attempt - User:', {
+      id: req.user.id,
+      email: req.user.email,
+      role: req.user.role
+    });
+
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ errors: errors.array() });
@@ -225,7 +231,10 @@ router.post('/', [
       where: { userId: req.user.id }
     });
 
+    console.log('Agent lookup result:', agent ? { id: agent.id, userId: agent.userId, verificationStatus: agent.verificationStatus } : 'No agent found');
+
     if (!agent) {
+      console.log('Agent not found for user:', req.user.id);
       return res.status(403).json({ message: 'Only agents can create properties' });
     }
 

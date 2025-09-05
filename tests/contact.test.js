@@ -1,5 +1,5 @@
 const request = require('supertest');
-const app = require('../server'); // Adjust the path to your server file
+const app = require('../app'); // Adjusted to import app.js for testing
 const { PrismaClient } = require('@prisma/client');
 
 const prisma = new PrismaClient();
@@ -28,7 +28,7 @@ describe('Contact Form Submission', () => {
     expect(response.body.message).toBe('Thank you for contacting us! We will get back to you within 24 hours.');
 
     // Check if the contact was saved in the database
-    const contact = await prisma.contact.findUnique({
+    const contact = await prisma.contact.findFirst({
       where: { email: 'john.doe@example.com' }
     });
     expect(contact).not.toBeNull();

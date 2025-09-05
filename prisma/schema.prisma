@@ -51,6 +51,7 @@ model Property {
   title         String
   description   String
   price         Int
+  currency      String         @default("NGN")
   address       String
   city          String
   state         String
@@ -60,6 +61,7 @@ model Property {
   squareFootage Int
   propertyType  PropertyType   @default(HOUSE)
   images        String[]
+  features      String[]
   status        PropertyStatus @default(ACTIVE)
   agentId       String
   createdAt     DateTime       @default(now())
