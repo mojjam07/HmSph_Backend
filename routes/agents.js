@@ -146,7 +146,9 @@ router.put('/profile', [
   body('specialties').optional().isArray(),
   body('bio').optional().trim().isLength({ min: 10 }),
   body('phone').optional().isMobilePhone(),
-  body('profileImage').optional().isURL()
+  body('profileImage').optional().isURL(),
+  body('bankName').optional().trim().isLength({ min: 2 }),
+  body('accountNumber').optional().trim().isLength({ min: 10 })
 ], authenticate, requireAgent, async (req, res) => {
   try {
     const errors = validationResult(req);

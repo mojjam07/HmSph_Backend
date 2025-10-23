@@ -17,6 +17,13 @@ model User {
   avatar    String?
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
+  // Email verification fields
+  emailVerified              Boolean?   @default(false)
+  emailVerificationToken     String?
+  emailVerificationExpires   DateTime?
+  // Password reset fields
+  passwordResetToken         String?
+  passwordResetExpires       DateTime?
   agent     Agent?
   contacts  Contact[]
   favorites Favorite[]
@@ -39,6 +46,9 @@ model Agent {
   listingLimits      Int                @default(25)
   subscriptionPlan   SubscriptionPlan   @default(BASIC)
   verificationStatus VerificationStatus @default(PENDING)
+  // Bank details for agents
+  bankName           String?
+  accountNumber      String?
   user               User               @relation(fields: [userId], references: [id])
   contacts           Contact[]
   payments           Payment[]
