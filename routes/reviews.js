@@ -1,6 +1,7 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { PrismaClient } = require('@prisma/client');
+const { authenticate, requireAdmin } = require('../middleware/auth');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -89,9 +90,9 @@ router.get('/property/:propertyId', async (req, res) => {
     const [reviews, total] = await Promise.all([
       prisma.review.findMany({
         where: {
-          status: 'APPROVED' // Only show approved reviews publicly
+          status: 'APPROVED',
+          propertyId: propertyId
         },
-        where: { propertyId },
         skip,
         take,
         orderBy: { createdAt: 'desc' },
@@ -106,7 +107,12 @@ router.get('/property/:propertyId', async (req, res) => {
           }
         }
       }),
-      prisma.review.count({ where: { propertyId } })
+      prisma.review.count({
+        where: {
+          propertyId: propertyId,
+          status: 'APPROVED'
+        }
+      })
     ]);
 
     res.json({
@@ -135,12 +141,8 @@ router.get('/agent/:agentId', async (req, res) => {
     const [reviews, total] = await Promise.all([
       prisma.review.findMany({
         where: {
-          status: 'APPROVED' // Only show approved reviews publicly
-        },
-        where: {
-          property: {
-            agentId: agentId
-          }
+          status: 'APPROVED', // Only show approved reviews publicly
+          agentId: agentId // Direct agent reviews
         },
         skip,
         take,
@@ -154,20 +156,20 @@ router.get('/agent/:agentId', async (req, res) => {
               email: true
             }
           },
-          property: {
+          agent: {
             select: {
               id: true,
-              title: true,
-              address: true
+              businessName: true,
+              phone: true,
+              profileImage: true
             }
           }
         }
       }),
       prisma.review.count({
         where: {
-          property: {
-            agentId: agentId
-          }
+          agentId: agentId,
+          status: 'APPROVED'
         }
       })
     ]);
@@ -198,9 +200,9 @@ router.get('/user/:userId', async (req, res) => {
     const [reviews, total] = await Promise.all([
       prisma.review.findMany({
         where: {
-          status: 'APPROVED' // Only show approved reviews publicly
+          status: 'APPROVED',
+          userId: userId
         },
-        where: { userId },
         skip,
         take,
         orderBy: { createdAt: 'desc' },
@@ -221,10 +223,22 @@ router.get('/user/:userId', async (req, res) => {
                 }
               }
             }
+          },
+          agent: {
+            select: {
+              id: true,
+              businessName: true,
+              phone: true
+            }
           }
         }
       }),
-      prisma.review.count({ where: { userId } })
+      prisma.review.count({
+        where: {
+          userId: userId,
+          status: 'APPROVED'
+        }
+      })
     ]);
 
     res.json({
@@ -246,7 +260,8 @@ router.get('/user/:userId', async (req, res) => {
 router.post('/', [
   body('rating').isInt({ min: 1, max: 5 }),
   body('comment').trim().isLength({ min: 10, max: 1000 }),
-  body('propertyId').isString().notEmpty()
+  body('propertyId').optional().isString(),
+  body('agentId').optional().isString()
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -262,28 +277,59 @@ router.post('/', [
     const jwt = require('jsonwebtoken');
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    const { rating, comment, propertyId } = req.body;
+    const { rating, comment, propertyId, agentId } = req.body;
 
-    // Check if user already reviewed this property
+    // Require either propertyId or agentId
+    if (!propertyId && !agentId) {
+      return res.status(400).json({ message: 'Either propertyId or agentId must be provided for reviews' });
+    }
+
+    // Validate propertyId or agentId exists
+    if (propertyId) {
+      const propertyExists = await prisma.property.findUnique({
+        where: { id: propertyId }
+      });
+      if (!propertyExists) {
+        return res.status(400).json({ message: 'Invalid propertyId: property does not exist' });
+      }
+    }
+
+    if (agentId) {
+      const agentExists = await prisma.agent.findUnique({
+        where: { id: agentId }
+      });
+      if (!agentExists) {
+        return res.status(400).json({ message: 'Invalid agentId: agent does not exist' });
+      }
+    }
+
+    // Check if user already reviewed this property or agent
     const existingReview = await prisma.review.findFirst({
       where: {
         userId: decoded.userId,
-        propertyId: propertyId
+        OR: [
+          { propertyId: propertyId || undefined },
+          { agentId: agentId || undefined }
+        ]
       }
     });
 
     if (existingReview) {
-      return res.status(400).json({ message: 'You have already reviewed this property' });
+      return res.status(400).json({ message: 'You have already reviewed this property or agent' });
     }
 
+    const reviewData = {
+      rating: parseInt(rating),
+      comment: comment.trim(),
+      userId: decoded.userId,
+      status: 'PENDING'
+    };
+
+    if (propertyId) reviewData.propertyId = propertyId;
+    if (agentId) reviewData.agentId = agentId;
+
     const review = await prisma.review.create({
-      data: {
-        rating: parseInt(rating),
-        comment: comment.trim(),
-        propertyId,
-        userId: decoded.userId,
-        status: 'PENDING'
-      },
+      data: reviewData,
       include: {
         user: {
           select: {
@@ -293,13 +339,21 @@ router.post('/', [
             email: true
           }
         },
-        property: {
+        property: propertyId ? {
           select: {
             id: true,
             title: true,
             address: true
           }
-        }
+        } : false,
+        agent: agentId ? {
+          select: {
+            id: true,
+            businessName: true,
+            phone: true,
+            profileImage: true
+          }
+        } : false
       }
     });
 
@@ -430,6 +484,230 @@ router.get('/stats', async (req, res) => {
     console.error('Error fetching review stats:', error.message, error.stack);
     res.status(500).json({
       message: 'Server error occurred while fetching review stats.',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Admin endpoints for review management
+router.get('/admin/all', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { page = 1, limit = 100 } = req.query;
+    const skip = (page - 1) * limit;
+    const take = parseInt(limit);
+
+    const [reviews, total] = await Promise.all([
+      prisma.review.findMany({
+        skip,
+        take,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          property: {
+            select: {
+              id: true,
+              title: true,
+              address: true
+            }
+          },
+          agent: {
+            select: {
+              id: true,
+              businessName: true,
+              phone: true,
+              profileImage: true
+            }
+          }
+        }
+      }),
+      prisma.review.count()
+    ]);
+
+    res.json({
+      reviews,
+      total,
+      page: parseInt(page),
+      pages: Math.ceil(total / limit)
+    });
+  } catch (error) {
+    console.error('Error fetching all reviews for admin:', error.message, error.stack);
+    res.status(500).json({
+      message: 'Server error occurred while fetching reviews.',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+router.get('/admin/pending', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { page = 1, limit = 20 } = req.query;
+    const skip = (page - 1) * limit;
+    const take = parseInt(limit);
+
+    const [reviews, total] = await Promise.all([
+      prisma.review.findMany({
+        where: {
+          status: 'PENDING'
+        },
+        skip,
+        take,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          property: {
+            select: {
+              id: true,
+              title: true,
+              address: true
+            }
+          },
+          agent: {
+            select: {
+              id: true,
+              businessName: true,
+              phone: true,
+              profileImage: true
+            }
+          }
+        }
+      }),
+      prisma.review.count({
+        where: {
+          status: 'PENDING'
+        }
+      })
+    ]);
+
+    res.json({
+      reviews,
+      total,
+      page: parseInt(page),
+      pages: Math.ceil(total / limit)
+    });
+  } catch (error) {
+    console.error('Error fetching pending reviews:', error.message, error.stack);
+    res.status(500).json({
+      message: 'Server error occurred while fetching pending reviews.',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Approve a review
+router.put('/:id/approve', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const review = await prisma.review.findUnique({
+      where: { id: req.params.id }
+    });
+
+    if (!review) {
+      return res.status(404).json({ message: 'Review not found' });
+    }
+
+    const updatedReview = await prisma.review.update({
+      where: { id: req.params.id },
+      data: {
+        status: 'APPROVED'
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        },
+        property: {
+          select: {
+            id: true,
+            title: true,
+            address: true
+          }
+        },
+        agent: {
+          select: {
+            id: true,
+            businessName: true,
+            phone: true,
+            profileImage: true
+          }
+        }
+      }
+    });
+
+    res.json({ review: updatedReview });
+  } catch (error) {
+    console.error('Error approving review:', error.message, error.stack);
+    res.status(500).json({
+      message: 'Server error occurred while approving review.',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Reject a review
+router.put('/:id/reject', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const review = await prisma.review.findUnique({
+      where: { id: req.params.id }
+    });
+
+    if (!review) {
+      return res.status(404).json({ message: 'Review not found' });
+    }
+
+    const updatedReview = await prisma.review.update({
+      where: { id: req.params.id },
+      data: {
+        status: 'REJECTED'
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        },
+        property: {
+          select: {
+            id: true,
+            title: true,
+            address: true
+          }
+        },
+        agent: {
+          select: {
+            id: true,
+            businessName: true,
+            phone: true,
+            profileImage: true
+          }
+        }
+      }
+    });
+
+    res.json({ review: updatedReview });
+  } catch (error) {
+    console.error('Error rejecting review:', error.message, error.stack);
+    res.status(500).json({
+      message: 'Server error occurred while rejecting review.',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }

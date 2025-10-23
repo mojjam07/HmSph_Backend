@@ -22,7 +22,7 @@ async function createAgentRecord() {
       data: {
         userId: agentUser.id,
         licenseNumber: 'AGT-' + agentUser.id.slice(-6).toUpperCase(),
-        verificationStatus: 'APPROVED'
+        verificationStatus: 'PENDING'
       }
     });
     

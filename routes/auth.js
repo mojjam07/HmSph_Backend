@@ -14,7 +14,11 @@ router.post('/register', [
   body('password').isLength({ min: 6 }),
   body('firstName').trim().isLength({ min: 2 }),
   body('lastName').trim().isLength({ min: 2 }),
-  body('role').isIn(['USER', 'AGENT'])
+  body('role').isIn(['USER', 'AGENT']),
+  body('phone').optional().isMobilePhone(),
+  body('businessName').optional().trim().isLength({ min: 2 }),
+  body('registrationNumber').if(body('role').equals('AGENT')).notEmpty().withMessage('Registration number is required').trim().isLength({ min: 3 }),
+  body('yearsOfExperience').optional().isInt({ min: 0, max: 50 })
 ], async (req, res) => {
   try {
     // Proactively check for JWT_SECRET
@@ -31,7 +35,7 @@ router.post('/register', [
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { email, password, firstName, lastName, role } = req.body;
+    const { email, password, firstName, lastName, role, phone, businessName, registrationNumber, yearsOfExperience } = req.body;
 
     const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) {
@@ -39,7 +43,7 @@ router.post('/register', [
     }
 
     const hashedPassword = await bcrypt.hash(password, 12);
-    
+
     const user = await prisma.user.create({
       data: {
         email,
@@ -60,11 +64,20 @@ router.post('/register', [
 
     // If role is AGENT, create an Agent record with verificationStatus PENDING
     if (role === 'AGENT') {
+      // Check if registration number is already taken
+      const existingAgent = await prisma.agent.findUnique({ where: { registrationNumber } });
+      if (existingAgent) {
+        return res.status(400).json({ message: 'Registration number already exists' });
+      }
+
       await prisma.agent.create({
         data: {
           userId: user.id,
-          licenseNumber: '', // Placeholder, should be updated later
-          verificationStatus: 'PENDING'
+          registrationNumber: registrationNumber || '',
+          verificationStatus: 'PENDING',
+          businessName: businessName || null,
+          phone: phone || null,
+          specialties: yearsOfExperience ? [`${yearsOfExperience} years experience`] : []
         }
       });
     }

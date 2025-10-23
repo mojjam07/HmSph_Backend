@@ -48,7 +48,26 @@ router.get('/', async (req, res) => {
         where,
         skip,
         take,
-        include: {
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          price: true,
+          currency: true,
+          address: true,
+          city: true,
+          state: true,
+          zipCode: true,
+          bedrooms: true,
+          bathrooms: true,
+          squareFootage: true,
+          propertyType: true,
+          images: true,
+          features: true,
+          status: true,
+          agentId: true,
+          createdAt: true,
+          updatedAt: true,
           agent: {
             include: {
               user: {
@@ -124,7 +143,26 @@ router.get('/search', async (req, res) => {
         where,
         skip,
         take,
-        include: {
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          price: true,
+          currency: true,
+          address: true,
+          city: true,
+          state: true,
+          zipCode: true,
+          bedrooms: true,
+          bathrooms: true,
+          squareFootage: true,
+          propertyType: true,
+          images: true,
+          features: true,
+          status: true,
+          agentId: true,
+          createdAt: true,
+          updatedAt: true,
           agent: {
             include: {
               user: {
@@ -162,7 +200,26 @@ router.get('/:id', async (req, res) => {
   try {
     const property = await prisma.property.findUnique({
       where: { id: req.params.id },
-      include: {
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        price: true,
+        currency: true,
+        address: true,
+        city: true,
+        state: true,
+        zipCode: true,
+        bedrooms: true,
+        bathrooms: true,
+        squareFootage: true,
+        propertyType: true,
+        images: true,
+        features: true,
+        status: true,
+        agentId: true,
+        createdAt: true,
+        updatedAt: true,
         agent: {
           include: {
             user: {

@@ -74,7 +74,7 @@ router.get('/', async (req, res) => {
         reviews: totalReviews,
         propertiesSold: soldProperties,
         yearsExperience: 5, // Default for now
-        licenseNumber: agent.licenseNumber,
+        registrationNumber: agent.registrationNumber,
         isVerified: agent.isVerified,
         verificationStatus: agent.verificationStatus,
         phone: agent.phone,
@@ -141,7 +141,7 @@ router.get('/profile', authenticate, requireAgent, async (req, res) => {
 
 // Update agent profile
 router.put('/profile', [
-  body('licenseNumber').optional().trim().isLength({ min: 5 }),
+  body('registrationNumber').optional().trim().isLength({ min: 5 }),
   body('commissionRate').optional().isFloat({ min: 0, max: 1 }),
   body('specialties').optional().isArray(),
   body('bio').optional().trim().isLength({ min: 10 }),
@@ -232,7 +232,26 @@ router.get('/:agentId/properties', async (req, res) => {
 
     const properties = await prisma.property.findMany({
       where: { agentId },
-      include: {
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        price: true,
+        currency: true,
+        address: true,
+        city: true,
+        state: true,
+        zipCode: true,
+        bedrooms: true,
+        bathrooms: true,
+        squareFootage: true,
+        propertyType: true,
+        images: true,
+        features: true,
+        status: true,
+        agentId: true,
+        createdAt: true,
+        updatedAt: true,
         agent: {
           include: {
             user: {

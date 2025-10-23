@@ -22,7 +22,8 @@ const authenticate = async (req, res, next) => {
         email: true,
         firstName: true,
         lastName: true,
-        role: true
+        role: true,
+        agent: true
       }
     });
 
@@ -60,6 +61,9 @@ const requireAdmin = (req, res, next) => {
 const requireAgent = (req, res, next) => {
   if (req.user.role !== 'AGENT') {
     return res.status(403).json({ message: 'Agent access required' });
+  }
+  if (!req.user.agent || req.user.agent.verificationStatus !== 'APPROVED') {
+    return res.status(403).json({ message: 'Agent approval required' });
   }
   next();
 };

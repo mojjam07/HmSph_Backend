@@ -104,7 +104,7 @@ router.post('/agents', [
   body('password').isLength({ min: 6 }),
   body('phone').optional().isMobilePhone(),
   body('businessName').optional().trim().isLength({ min: 2 }),
-  body('licenseNumber').trim().isLength({ min: 5 }),
+  body('registrationNumber').trim().isLength({ min: 5 }),
   body('verificationStatus').optional().isIn(['PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED']),
   body('subscriptionPlan').optional().isIn(['BASIC', 'PRO', 'PREMIUM', 'ENTERPRISE']),
   body('profileImage').optional().isURL(),
@@ -126,7 +126,7 @@ router.post('/agents', [
       password,
       phone,
       businessName,
-      licenseNumber,
+      registrationNumber,
       verificationStatus = 'PENDING',
       subscriptionPlan = 'BASIC',
       profileImage,
@@ -142,10 +142,10 @@ router.post('/agents', [
       return res.status(400).json({ message: 'User with this email already exists' });
     }
 
-    // Check if license number is already taken
-    const existingAgent = await prisma.agent.findUnique({ where: { licenseNumber } });
+    // Check if registration number is already taken
+    const existingAgent = await prisma.agent.findUnique({ where: { registrationNumber } });
     if (existingAgent) {
-      return res.status(400).json({ message: 'License number already exists' });
+      return res.status(400).json({ message: 'Registration number already exists' });
     }
 
     // Hash the password
@@ -167,7 +167,7 @@ router.post('/agents', [
     const agent = await prisma.agent.create({
       data: {
         userId: user.id,
-        licenseNumber,
+        registrationNumber,
         phone,
         businessName,
         verificationStatus,
@@ -199,7 +199,7 @@ router.post('/agents', [
         email: agent.user.email,
         phone: agent.phone,
         businessName: agent.businessName,
-        licenseNumber: agent.licenseNumber,
+        registrationNumber: agent.registrationNumber,
         verificationStatus: agent.verificationStatus,
         subscriptionPlan: agent.subscriptionPlan,
         profilePicture: agent.user.avatar || agent.profileImage
@@ -229,7 +229,7 @@ router.get('/agents', async (req, res) => {
       where.OR = [
         { user: { firstName: { contains: search.trim(), mode: 'insensitive' } } },
         { user: { lastName: { contains: search.trim(), mode: 'insensitive' } } },
-        { licenseNumber: { contains: search.trim(), mode: 'insensitive' } }
+        { registrationNumber: { contains: search.trim(), mode: 'insensitive' } }
       ];
     }
 
@@ -241,6 +241,7 @@ router.get('/agents', async (req, res) => {
         where.verificationStatus = status.toUpperCase();
       }
     }
+    // If no status filter provided (including 'all'), include all agents
 
     const [agents, total] = await Promise.all([
       prisma.agent.findMany({
@@ -269,6 +270,9 @@ router.get('/agents', async (req, res) => {
       prisma.agent.count({ where })
     ]);
 
+    // Debug: Log agents and total count to verify data
+    console.log(`Admin agents fetched: ${agents.length} / Total: ${total}`);
+
     const transformedAgents = agents.map(agent => {
       const activeProperties = agent.properties.filter(p => p.status === 'ACTIVE').length;
       const soldProperties = agent.properties.filter(p => p.status === 'SOLD').length;
@@ -281,7 +285,7 @@ router.get('/agents', async (req, res) => {
         email: String(agent.user.email),
         phone: String(agent.phone || ''),
         businessName: String(agent.businessName || ''),
-        licenseNumber: String(agent.licenseNumber || ''),
+        registrationNumber: String(agent.registrationNumber || ''),
         isVerified: Boolean(agent.isVerified),
         verificationStatus: String(agent.verificationStatus),
         subscriptionPlan: String(agent.subscriptionPlan),
@@ -451,7 +455,26 @@ router.get('/properties', async (req, res) => {
         where,
         skip,
         take,
-        include: {
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          price: true,
+          currency: true,
+          address: true,
+          city: true,
+          state: true,
+          zipCode: true,
+          bedrooms: true,
+          bathrooms: true,
+          squareFootage: true,
+          propertyType: true,
+          images: true,
+          features: true,
+          status: true,
+          agentId: true,
+          createdAt: true,
+          updatedAt: true,
           agent: {
             include: {
               user: {
@@ -582,7 +605,7 @@ router.post('/properties', [
       systemAgent = await prisma.agent.create({
         data: {
           userId: adminUser.id,
-          licenseNumber: 'SYSTEM-ADMIN',
+          registrationNumber: 'SYSTEM-ADMIN',
           businessName: 'System Admin',
           isVerified: true,
           verificationStatus: 'APPROVED'

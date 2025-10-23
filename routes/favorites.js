@@ -165,14 +165,70 @@ router.get('/check/:propertyId', authenticate, async (req, res) => {
       }
     });
 
-    res.json({ 
+    res.json({
       isFavorited: !!favorite,
-      favoriteId: favorite?.id 
+      favoriteId: favorite?.id
     });
   } catch (error) {
     console.error('Error checking favorite status:', error.message, error.stack);
     res.status(500).json({
       message: 'Server error occurred while checking favorite status.',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Get admin's favorite properties (public endpoint for landing page)
+router.get('/admin', async (req, res) => {
+  try {
+    // Find admin user
+    const adminUser = await prisma.user.findFirst({
+      where: { role: 'ADMIN' }
+    });
+
+    if (!adminUser) {
+      console.error('Admin user not found');
+      return res.status(404).json({ message: 'Admin user not found' });
+    }
+
+    const favorites = await prisma.favorite.findMany({
+      where: { userId: adminUser.id },
+      include: {
+        property: {
+          include: {
+            agent: {
+              include: {
+                user: {
+                  select: {
+                    firstName: true,
+                    lastName: true,
+                    email: true
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    if (!favorites || favorites.length === 0) {
+      console.warn('No favorites found for admin user');
+    }
+
+    const properties = favorites.map(fav => fav.property);
+
+    console.log('Properties data:', JSON.stringify(properties, null, 2));
+
+    res.json({
+      properties,
+      total: properties.length
+    });
+  } catch (error) {
+    console.error('Error fetching admin favorites:', error.message, error.stack);
+    res.status(500).json({
+      message: 'Server error occurred while fetching admin favorites.',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
