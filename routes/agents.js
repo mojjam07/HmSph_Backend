@@ -307,6 +307,85 @@ router.get('/:agentId/stats', async (req, res) => {
   }
 });
 
+// Get agent reviews
+router.get('/:agentId/reviews', async (req, res) => {
+  try {
+    const { agentId } = req.params;
+
+    // Verify agent exists
+    const agent = await prisma.agent.findUnique({
+      where: { id: agentId },
+      include: {
+        user: {
+          select: {
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        }
+      }
+    });
+
+    if (!agent) {
+      return res.status(404).json({ message: 'Agent not found' });
+    }
+
+    // Get all reviews for properties managed by this agent
+    const reviews = await prisma.review.findMany({
+      where: {
+        property: {
+          agentId: agentId
+        }
+      },
+      include: {
+        user: {
+          select: {
+            firstName: true,
+            lastName: true,
+            email: true,
+            avatar: true
+          }
+        },
+        property: {
+          select: {
+            id: true,
+            title: true,
+            address: true,
+            city: true,
+            state: true
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    // Transform reviews to match frontend expectations
+    const transformedReviews = reviews.map(review => ({
+      id: review.id,
+      rating: review.rating,
+      comment: review.comment,
+      createdAt: review.createdAt,
+      userName: `${review.user.firstName} ${review.user.lastName}`,
+      userAvatar: review.user.avatar,
+      propertyTitle: review.property.title,
+      propertyLocation: `${review.property.city}, ${review.property.state}`,
+      likes: review.likes || 0,
+      dislikes: review.dislikes || 0
+    }));
+
+    res.json({
+      reviews: transformedReviews,
+      total: transformedReviews.length
+    });
+  } catch (error) {
+    console.error('Error fetching agent reviews:', error.message, error.stack);
+    res.status(500).json({
+      message: 'Server error occurred while fetching agent reviews.',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
 router.post('/:agentId/contact', [
   body('contactType').isIn(['email', 'phone', 'message']),
   body('message').optional().trim().isLength({ min: 10, max: 1000 }),
