@@ -119,25 +119,12 @@ router.delete('/:propertyId', authenticate, async (req, res) => {
   try {
     const { propertyId } = req.params;
 
-    const favorite = await prisma.favorite.findUnique({
+    // Attempt to delete the favorite - this is idempotent
+    // If it doesn't exist, Prisma will not throw an error
+    await prisma.favorite.deleteMany({
       where: {
-        userId_propertyId: {
-          userId: req.user.id,
-          propertyId: propertyId
-        }
-      }
-    });
-
-    if (!favorite) {
-      return res.status(404).json({ message: 'Favorite not found' });
-    }
-
-    await prisma.favorite.delete({
-      where: {
-        userId_propertyId: {
-          userId: req.user.id,
-          propertyId: propertyId
-        }
+        userId: req.user.id,
+        propertyId: propertyId
       }
     });
 
