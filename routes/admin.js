@@ -323,6 +323,16 @@ router.get('/agents', async (req, res) => {
 router.post('/agents/:id/approve', async (req, res) => {
   try {
     const agentId = req.params.id;
+
+    // Check if agent exists
+    const existingAgent = await prisma.agent.findUnique({
+      where: { id: agentId }
+    });
+
+    if (!existingAgent) {
+      return res.status(404).json({ message: 'Agent not found.' });
+    }
+
     const updatedAgent = await prisma.agent.update({
       where: { id: agentId },
       data: { verificationStatus: 'APPROVED' },
